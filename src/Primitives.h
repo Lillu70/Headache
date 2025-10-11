@@ -16,7 +16,32 @@
 #define PASTE(name) name
 #define PASTE_AS_CSTRING(name) #name
 #define local_storage static
-#define Assert(X) if(!(X)) *((s32*)0) = 666 
+
+#ifdef SLOW
+
+#ifndef Assert
+	#define Assert(X) if(!(X)) *((s32*)0) = 666 
+
+#endif
+
+#ifndef Terminate
+	#define Terminate(X) *((s32*)0) = 666 
+
+#endif
+
+#else
+
+#ifndef Assert
+	#define Assert(X) 
+
+#endif
+
+#ifndef Terminate
+	#define Terminate(X)
+
+#endif
+
+#endif
 
 
 #if _WIN32
