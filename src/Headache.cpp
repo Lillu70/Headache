@@ -1,9 +1,112 @@
 
-#define Terminate(MSG) *((s32*)0) = 666 
-#define MAX_PATH 260
+#include <stdio.h>
 
-#include "Primitives.h"
-#include "Win32.cpp"
+#include "LibPrimordial\Primitives.h"
+#include "LibPrimordial\Win32.cpp"
+
+/*
+    Test things ----------
+*/
+namespace RGB
+{
+    enum T : u8
+    {
+        red,
+        green,
+        blue
+    };
+}
+
+namespace TIER1
+{
+    SIG void FOO()
+    {
+
+    }
+
+    namespace TIER2A
+    {
+        SIG void BAR(int A DEF(69))
+        {
+
+        }
+
+        struct FOOBAR
+        {
+            int a;
+        };
+    }
+
+    namespace TIER2B
+    {
+        struct FOOBAR
+        {
+            int a;
+        };
+    }
+
+    namespace TIER2C
+    {
+        namespace TIER3
+        {
+            struct FOOBAR
+            {
+                int a;
+            };
+        }
+    }
+}
+
+namespace TWOTIERKIER
+{
+    struct FooBar
+    {
+        int a;
+    };
+}
+
+using namespace RGB;
+
+union Testunion
+{
+    u64 integer;
+    f64 IEEE;
+};
+
+
+int Test_Function_With_Local_Struct(int b)
+{
+    struct local
+    {
+        int a;
+    };
+
+    local l = {11};
+    l.a *= b;
+
+    return l.a;
+}
+
+// ----------------------
+
+
+constexpr String marker                 = STR("SIG ");
+constexpr String def_marker             = STR("DEF(");
+constexpr String keyword_struct         = STR("struct ");
+constexpr String keyword_union          = STR("union ");
+constexpr String keyword_enum           = STR("enum ");
+constexpr String keyword_enum_class     = STR("enum class ");
+constexpr String keyword_namespace      = STR("namespace ");
+constexpr String single_line_comment    = STR("//");
+constexpr String disabled_start         = STR("#if 0");
+constexpr String disabled_end           = STR("#endif");
+constexpr String block_comment_start    = STR("/*");
+constexpr String block_comment_end      = STR("*/");
+constexpr String include_directive      = STR("#include ");
+constexpr String output_name            = STR("HEADACHE_OUTPUT.h");
+
+
+#define SPACES_PER_INDENTATION 4
 
 enum class State
 {
@@ -16,15 +119,15 @@ enum class State
 };
 
 
-constexpr String marker                 = STR("SIG ");
-constexpr String _struct                = STR("struct ");
-constexpr String single_line_comment    = STR("//");
-constexpr String disabled_start         = STR("#if 0");
-constexpr String disabled_end           = STR("#endif");
-constexpr String block_comment_start    = STR("/*");
-constexpr String block_comment_end      = STR("*/");
-constexpr String include_directive      = STR("#include ");
-constexpr String output_name            = STR("HEADACHE_OUTPUT.h");
+namespace Signature_Type
+{
+    enum T
+    {   
+        data_type,
+        function,
+        COUNT,
+    };
+}
 
 
 struct Signature
@@ -49,17 +152,37 @@ struct Signature_Root
 };
 
 
+struct Namespace_List
+{
+    Namespace_List* parallel;
+    Namespace_List* deeper;
+    Namespace_List* prev;
+
+    String spacename;
+    u64 block_count;
+    u64 depth;
+
+    //Signature_Root functions;
+    //Signature_Root structs;
+    
+    Signature_Root signatures[Signature_Type::COUNT];
+    u64 counts[Signature_Type::COUNT];
+};
+
+
 struct Parser
 {
     String path;
+    String directory;
 
     State state;
     String file;
     u64 line_count;
+    u64 open_block_count;
     char* last_new_line;
 
-    Signature_Root functions;
-    Signature_Root structs;
+    Namespace_List space;
+    Namespace_List* headspace;
 
     Parser* next;
 };
@@ -67,8 +190,6 @@ struct Parser
 
 struct Globals
 {
-    String directory;
-    
     Arena arena;
 
     u64 longest_signature_length;
@@ -97,7 +218,7 @@ SIG String Target_Directory(String path)
 }
 
 
-SIG u64 Push_Signature(Signature_Root* root, String str, u64 line_count, Globals* globals)
+SIG u64 Push_Signature(Globals* globals, Parser* parser, String str, Signature_Type::T t)
 {
     String copy = str;
 
@@ -125,6 +246,8 @@ SIG u64 Push_Signature(Signature_Root* root, String str, u64 line_count, Globals
     
 
     str = Skip_Whitespace(str);
+    u64 effective_length = str.length;
+    
     if(str.length)
     {
         //TODO: Add validation... does this look like a function signature?
@@ -139,6 +262,19 @@ SIG u64 Push_Signature(Signature_Root* root, String str, u64 line_count, Globals
 
         if(valid)
         {
+            for(u64 i = 0; i < str.length; ++i)
+            {
+                String A = Forward(str, i);
+                String B = def_marker;
+                if(Match_Beginning_Case_Sensitive(A, B))
+                {
+                    i += B.length;
+                    effective_length -= def_marker.length + 1 - 2;
+                }
+            }
+
+            Signature_Root* root = parser->headspace->signatures + t;
+                
             if(!root->root)
             {
                 root->root = Push_Struct(&globals->arena, Signature_Bucket);
@@ -156,20 +292,29 @@ SIG u64 Push_Signature(Signature_Root* root, String str, u64 line_count, Globals
             Assert(root->head);
 
             Signature* sig = root->head->signatures + root->head_count;
-            *sig = {str, line_count};
+            *sig = {str, parser->line_count};
 
             root->head_count += 1;
+
+            effective_length += parser->headspace->depth * SPACES_PER_INDENTATION;
+
+            Namespace_List* nl = parser->headspace;
+            while(nl)
+            {
+                nl->counts[t] += 1;
+                nl = nl->prev;
+            }
         }
     }
 
-    globals->longest_signature_length = Max(globals->longest_signature_length, str.length);
+    globals->longest_signature_length = Max(globals->longest_signature_length, effective_length);
 
+    
     return str.length;
 }
 
-
 // FORWARDS FUCKING DECLARE!!!! THIS WHY I AM DOING THIS PROJECT!!!!
-void Parse_File(Globals* globals, String path);
+void Parse_File(Globals* globals, String directory, String path);
 
 
 SIG void Run_Parser(Globals* globals, Parser* parser)
@@ -178,12 +323,34 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
     {
         char c = parser->file.ptr[i];
         String str = Forward(parser->file, i);
-        
+
         switch(parser->state)
         {
             case State::code:
             {
-                if(!Is_Whitespace(c))
+                if(c == '{')
+                {
+                    parser->open_block_count += 1;
+                }
+                else if (c == '}')
+                {
+                    Namespace_List* headspace = parser->headspace;
+                    if(parser->open_block_count == headspace->block_count)
+                    {
+                        parser->headspace = headspace->prev;
+                        if(!parser->headspace)
+                        {
+                            parser->state = State::error;
+                            continue;
+                        }
+                    }
+                    
+                    parser->open_block_count -= 1;
+                }
+
+                u64 root_block_count = parser->headspace->block_count;
+
+                if(!Is_Whitespace(c) && parser->open_block_count == root_block_count)
                 {
                     switch(c)
                     {
@@ -200,6 +367,61 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
 
                         }break;
 
+                        case keyword_namespace.ptr[0]:
+                        {
+                            String A = Forward(parser->file, i + 1);
+                            String B = Forward(keyword_namespace, 1);
+
+                            if(Match_Beginning_Case_Sensitive(A, B))
+                            {
+                                i += B.length;
+
+                                A = Forward(A, B.length);
+                                A = Skip_Whitespace(A);
+                                String next_word = A;
+                                if(Seek(next_word, Is_Whitespace, &next_word.length))
+                                {
+                                    // Check that the namespace is actually opened.
+                                    A = Forward(A, next_word);
+                                    A = Skip_Whitespace(A);
+                                    if(First(A) == '{')
+                                    {
+                                        Namespace_List* nl = Push_Struct(&globals->arena, Namespace_List);
+                                        Namespace_List* headspace = parser->headspace;
+                                        
+                                        if(headspace->deeper == 0)
+                                        {
+                                            headspace->deeper = nl;
+                                        }
+                                        else
+                                        {
+                                            Namespace_List* parallel_head = headspace->deeper;
+                                            while(parallel_head->parallel)
+                                            {
+                                                parallel_head = parallel_head->parallel;
+                                            }
+
+                                            parallel_head->parallel = nl;
+
+                                            Assert(parser->space.parallel == 0);
+                                        }
+
+                                        nl->prev = headspace;
+                                        nl->block_count = parser->open_block_count + 1;
+                                        nl->spacename = next_word;
+                                        nl->depth = nl->prev->depth + 1;
+                                        
+                                        parser->headspace = nl;
+                                    }
+
+                                    else
+                                    {
+                                        // CONSIDER: Error?
+                                    }
+                                }
+                            }
+                            
+                        }break;
 
                         case marker.ptr[0]:
                         {
@@ -211,21 +433,31 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
                                 parser->state = State::seek;
                                 
                                 i += B.length + 1;
-                                u64 length = Push_Signature(&parser->functions, Forward(parser->file, i), parser->line_count, globals);
+                                //u64 length = Push_Signature(&parser->functions, Forward(parser->file, i), parser->line_count, globals);
+                                u64 length = Push_Signature(globals, parser, Forward(parser->file, i), Signature_Type::function);
                             }
 
                         }break;
 
-                        case _struct.ptr[0]:
+                        
+                        case keyword_union.ptr[0]:
+                        case keyword_enum.ptr[0]:
+                        case keyword_struct.ptr[0]:
                         {
-                            String A = Forward(parser->file, i + 1);
-                            String B = Forward(_struct, 1);
+                            String A = Forward(parser->file, i);
+                            
+                            bool match = 
+                                Match_Beginning_Case_Sensitive(A, keyword_struct)       || 
+                                Match_Beginning_Case_Sensitive(A, keyword_union)        ||
+                                Match_Beginning_Case_Sensitive(A, keyword_enum_class)   ||
+                                Match_Beginning_Case_Sensitive(A, keyword_enum);
 
-                            if(Match_Beginning_Case_Sensitive(A, B))
+                            if(match)
                             {
                                 parser->state = State::seek;
 
-                                u64 length = Push_Signature(&parser->structs, Forward(parser->file, i), parser->line_count, globals);
+                                //u64 length = Push_Signature(&parser->structs, Forward(parser->file, i), parser->line_count, globals);
+                                u64 length = Push_Signature(globals, parser, Forward(parser->file, i), Signature_Type::data_type);
                             }
 
                         }break;
@@ -264,7 +496,7 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
                                             if(Seek(include, '>', &end))
                                             {
                                                 include.length = end;
-                                                Parse_File(globals, include);
+                                                Parse_File(globals, parser->directory, include);
                                             }
                                         }break;
 
@@ -276,7 +508,7 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
                                             if(Seek(include, '"', &end))
                                             {
                                                 include.length = end;
-                                                Parse_File(globals, include);
+                                                Parse_File(globals, parser->directory, include);
                                             }
                                         }break;
                                     }
@@ -344,6 +576,13 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
                     }
                 }
             }break;
+
+
+            case State::error:
+            {
+                // NOTE: This is effectively just a break statement, cpp just doesn't support double break.
+                i = parser->file.length;
+            }break;
         }
 
 
@@ -360,7 +599,7 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
 }
 
 
-SIG void Parse_File(Globals* globals, String path)
+SIG void Parse_File(Globals* globals, String directory, String path)
 {
     bool is_output = Match_Case_Sensitive(output_name, path);
     // NOTE: To avoid pasting the already generated forward decloration back in don't go into a file with the output name.
@@ -384,7 +623,7 @@ SIG void Parse_File(Globals* globals, String path)
 
     if(not_yet_parsed && !is_output)
     {
-        String full_path = Merge(globals->directory, path, &globals->arena);
+        String full_path = Merge(directory, path, &globals->arena);
 
         String file = OS_Read_Entire_File(full_path, &globals->arena);
         if(file.length)
@@ -402,11 +641,14 @@ SIG void Parse_File(Globals* globals, String path)
                 globals->parsers_head = parser;
             }
             
-            parser->path = path;
+            parser->path = full_path;
             parser->file = file;
             parser->state = State::code;
             parser->line_count = 1;
             parser->last_new_line = parser->file.ptr;
+            parser->directory = Target_Directory(full_path);
+            parser->headspace = &parser->space;
+            parser->space.spacename = STR("GLOBAL ROOT");
 
             Run_Parser(globals, parser);
         }
@@ -414,7 +656,26 @@ SIG void Parse_File(Globals* globals, String path)
 }
 
 
-SIG void Output_Signature_List(Globals* globals, Signature_Root* root)
+SIG u64 Output_Indentation(Arena* arena, s64 depth)
+{
+    u64 result = 0;
+    if(depth > 0)
+    {
+        result = u64(depth) * SPACES_PER_INDENTATION;
+        for(s64 i = 0; i < depth; ++i)
+        {
+            for(u64 j = 0; j < SPACES_PER_INDENTATION; ++j)
+            {
+                Push_String(arena, STR(" "));
+            }
+        }
+    }
+
+    return result;
+}
+
+
+SIG void Output_Signature_List(Globals* globals, Signature_Root* root, u64 depth)
 {
     String postfix = STR(" // LINE: ");
     
@@ -425,22 +686,76 @@ SIG void Output_Signature_List(Globals* globals, Signature_Root* root)
         u64 count = (is_head)? root->head_count : Array_Length(bucket->signatures);
         for(u64 i = 0; i < count; ++i)
         {
+
             Signature sig = bucket->signatures[i];
+            
+            u64 def_count = 0;
+            for(u64 j = 0; j < sig.slice.length; ++j)
+            {
+                String A = Forward(sig.slice, j);
+                String B = def_marker;
+                if(Match_Beginning_Case_Sensitive(A, B))
+                {
+                    j += B.length;
+                    def_count += 1;
+                }
+            }
+
             U64_To_String_Memory string_memory;
             String line_number = To_String(sig.line, &string_memory);
-            
             u64 extra = 2 + line_number.length + postfix.length;
+
+            u64 indent_characters = Output_Indentation(&globals->arena, depth);
             
-            char* tmp = (char*)Push(&globals->arena, globals->longest_signature_length + extra);
-            Mem_Copy(tmp, sig.slice.ptr, sig.slice.length);
-            tmp[sig.slice.length] = ';';
+            u64 desired_line_length = globals->longest_signature_length - indent_characters;
+            u64 effective_slice_length = sig.slice.length - (def_count * (def_marker.length + 1)) + (def_count * 2);
             
-            for(u64 j = sig.slice.length + 1; j <= globals->longest_signature_length; ++j)
+            
+            char* tmp = (char*)Push(&globals->arena, desired_line_length + extra);
+            
+            for(u64 dest = 0, src = 0; dest < effective_slice_length; )
+            {
+                String A = Forward(sig.slice, src);
+                String B = def_marker;
+
+                if(Match_Beginning_Case_Sensitive(A, B))
+                {
+                    tmp[dest++]  = '=';
+                    tmp[dest++]  = ' ';
+                    src += B.length;
+                    u64 open_brace_count = 1;
+                    while(open_brace_count > 0 && dest < effective_slice_length)
+                    {
+                        char c = sig.slice.ptr[src++];
+                        if(c == '(')
+                        {
+                            open_brace_count += 1;
+                        }
+                        else if (c == ')')
+                        {
+                            open_brace_count -= 1;
+                        }
+                        
+                        if(open_brace_count)
+                        {
+                            tmp[dest++] = c;
+                        }
+                    }
+                }
+                else
+                {
+                    tmp[dest++] = sig.slice.ptr[src++];
+                }
+            }
+
+            tmp[effective_slice_length] = ';';
+            
+            for(u64 j = effective_slice_length + 1; j <= desired_line_length; ++j)
             {
                 tmp[j] = ' ';
             }
 
-            char* w = tmp + globals->longest_signature_length + 1;
+            char* w = tmp + desired_line_length + 1;
             
             Mem_Copy(w, postfix.ptr, postfix.length);
             Mem_Copy(w + postfix.length, line_number.ptr, line_number.length);
@@ -454,8 +769,63 @@ SIG void Output_Signature_List(Globals* globals, Signature_Root* root)
 }
 
 
-#include <stdio.h>
-SIG void Output_Results_To_Buffer(Globals* globals)
+SIG void Namespace_Walker(Globals* globals, Namespace_List* list, s64 depth, Signature_Type::T t)
+{
+    Arena* arena = &globals->arena;
+
+    while(list)
+    {
+
+        if(depth && list->counts[t])
+        {
+            Output_Indentation(arena, depth - 1);
+            Push_String(arena, keyword_namespace);
+            Push_String(arena, list->spacename);
+            Push_String(arena, STR("\n"));
+            Output_Indentation(arena, depth - 1);
+            Push_String(arena, STR("{\n"));
+        }
+        
+        Output_Signature_List(globals, list->signatures + t, depth);
+
+        if(list->deeper)
+        {
+            Namespace_Walker(globals, list->deeper, depth + 1, t);
+        }
+
+        if(depth && list->counts[t])
+        {
+            Output_Indentation(arena, depth - 1);
+            Push_String(arena, STR("}\n\n"));
+        }
+
+        list = list->parallel;
+    }
+}
+
+
+SIG void Output(Globals* globals, Arena* arena, Signature_Type::T t)
+{
+    Parser* parser = globals->parsers_root;
+
+    while(parser)
+    {
+        if(parser->state != State::error && parser->space.counts[t])
+        {       
+            Push_String(arena, STR("\n// FILE: "));
+            Push_String(arena, parser->path);
+            Push_String(arena, STR(":\n"));
+            
+            Namespace_Walker(globals, &parser->space, 0, t);
+        }
+        
+
+        parser = parser->next;
+    }
+}
+
+
+SIG void Output_Results_To_Buffer(Globals* globals, String directory)
 {
     Arena* arena = &globals->arena;
 
@@ -466,38 +836,24 @@ SIG void Output_Results_To_Buffer(Globals* globals)
         String title = STR("// --- WARNING! ---\n// THIS IS A GENERATED FILE; DO NOT EDIT MANUALLY!\n// ----------------\n");
         char* output_ptr = Push_String(arena, title);
 
-        Parser* parser = globals->parsers_root;
-        while(parser)
-        {
-            if(parser->state != State::error)
-            {
-                if(parser->structs.root || parser->functions.root)
-                {
-                    Push_String(arena, STR("\n\n// FILE: "));
-                    Push_String(arena, parser->path);
-                    Push_String(arena, STR(":\n\n"));
-                    
-                    if(parser->structs.root)
-                    {
-                        Push_String(arena, STR("// Structs:\n"));
-                        Output_Signature_List(globals, &parser->structs);
-                    }
-                    
-                    if(parser->functions.root)
-                    {
-                        Push_String(arena, STR("\n// Functions:\n"));
-                        Output_Signature_List(globals, &parser->functions);
-                    }
-                }
-            }
+        Push_String(arena, STR("\n\n// Data types:\n"));
+        Output(globals, arena, Signature_Type::data_type);
+        
+        Push_String(arena, STR("\n\n// Functions:\n"));
+        Output(globals, arena, Signature_Type::function);
 
-            parser = parser->next;
-        }
-
+        #if 0
+        
+        printf(output_ptr);
+        
+        #else
+        
         u64 output_length = (char*)Push(arena, 0) - output_ptr;
         String output = {output_ptr, output_length};
-        String output_full_path = Merge(globals->directory, output_name, arena);
+        String output_full_path = Merge(directory, output_name, arena);
         OS_Write_File(output, output_full_path, arena);
+
+        #endif
     }
 }
 
@@ -506,19 +862,18 @@ s32 main(s32 argc, char** argv)
 {
     s32 result = 0;
 
-    char* _path = "C:\\Dev\\Headache\\src\\Headache.cpp"; // TODO: Parse this off the argv
     if(argc == 2)
     {
         Globals globals = {};
-        String full_path = To_String(_path);
-        globals.directory = Target_Directory(full_path);
-        String path = Forward(full_path, globals.directory.length);
+        String full_path    = To_String(argv[1]);
+        String directory    = Target_Directory(full_path);
+        String path         = Forward(full_path, directory.length);
 
-        Initialize_Arena(&globals.arena);
+        Initialize_Arena(&globals.arena, Gigabytes(64), 16);
 
-        Parse_File(&globals, path);
+        Parse_File(&globals, directory, path);
 
-        Output_Results_To_Buffer(&globals);
+        Output_Results_To_Buffer(&globals, directory);
     }
     else
     {
@@ -526,6 +881,6 @@ s32 main(s32 argc, char** argv)
         result = -1;
     }
     
-
+    Terminate(X);
     return result;
 }
