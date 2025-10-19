@@ -5,51 +5,17 @@
 
 // Data types:
 
-// FILE: src\headache.cpp:
-union Testunion;                                                                                        // LINE: 70
-enum class State;                                                                                       // LINE: 111
-struct Signature;                                                                                       // LINE: 133
-struct Signature_Bucket;                                                                                // LINE: 140
-struct Signature_Root;                                                                                  // LINE: 147
-struct Namespace_List;                                                                                  // LINE: 155
-struct Parser;                                                                                          // LINE: 173
-struct Globals;                                                                                         // LINE: 191
-namespace RGB
-{
-    enum T : u8;                                                                                        // LINE: 12
-}
-
-namespace TIER1
-{
-    namespace TIER2A
-    {
-        struct FOOBAR;                                                                                  // LINE: 34
-    }
-
-    namespace TIER2B
-    {
-        struct FOOBAR;                                                                                  // LINE: 42
-    }
-
-    namespace TIER2C
-    {
-        namespace TIER3
-        {
-            struct FOOBAR;                                                                              // LINE: 52
-        }
-
-    }
-
-}
-
-namespace TWOTIERKIER
-{
-    struct FooBar;                                                                                      // LINE: 62
-}
-
+// FILE: src\Headache.cpp:
+enum class State;                                                                                       // LINE: 52
+struct Signature;                                                                                       // LINE: 74
+struct Signature_Bucket;                                                                                // LINE: 81
+struct Signature_Root;                                                                                  // LINE: 88
+struct Namespace_List;                                                                                  // LINE: 96
+struct Parser;                                                                                          // LINE: 114
+struct Globals;                                                                                         // LINE: 132
 namespace Signature_Type
 {
-    enum T;                                                                                             // LINE: 124
+    enum T;                                                                                             // LINE: 65
 }
 
 
@@ -114,19 +80,9 @@ struct Arena;                                                                   
 
 // Functions:
 
-// FILE: src\headache.cpp:
-String Target_Directory(String path);                                                                   // LINE: 202
-u64 Push_Signature(Globals* globals, Parser* parser, String str, Signature_Type::T t);                  // LINE: 221
-namespace TIER1
-{
-    void FOO();                                                                                         // LINE: 22
-    namespace TIER2A
-    {
-        void BAR(int A = 69);                                                                           // LINE: 29
-    }
-
-}
-
+// FILE: src\Headache.cpp:
+String Target_Directory(String path);                                                                   // LINE: 143
+u64 Push_Signature(Globals* globals, Parser* parser, String str, Signature_Type::T t);                  // LINE: 162
 
 // FILE: src\LibPrimordial\Basic.cpp:
 s16 Abs(s16 v);                                                                                         // LINE: 9

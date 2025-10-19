@@ -1,7 +1,12 @@
 
+#define PRINT_RESULTS 0
+
 #include <stdio.h>
 
 #include "LibPrimordial\Primitives.h"
+#include "LibPrimordial\Basic.cpp"
+#include "LibPrimordial\String.cpp"
+#include "LibPrimordial\Arena.cpp"
 #include "LibPrimordial\Win32.cpp"
 
 constexpr String marker                 = STR("SIG ");
@@ -19,6 +24,33 @@ constexpr String block_comment_end      = STR("*/");
 constexpr String include_directive      = STR("#include ");
 constexpr String output_name            = STR("HEADACHE_OUTPUT.h");
 
+#define PASTE_AS_STRING(X) STR(PASTE_AS_CSTRING(X))
+
+namespace Stats
+{
+    #define STATS(X)    \
+    X(might),           \
+    X(accuracy),        \
+    X(dodge),           \
+    X(vitality),        \
+    X(speed),           \
+    X(perception),      \
+    X(resistance),      \
+    
+    enum T
+    {
+        STATS(PASTE)
+        COUNT
+    };
+    
+    
+    String name[] = 
+    {
+        STATS(PASTE_AS_STRING)
+    };
+    
+    #undef STATS
+};
 
 #define SPACES_PER_INDENTATION 4
 
@@ -478,13 +510,17 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
             {
                 if(c == '\n')
                 {
+                    parser->state = State::code;
                     char* head = parser->file.ptr + i;
                     while(head-- > parser->last_new_line)
                     {
                         char c2 = *head;
                         if(!Is_Whitespace(c2))
                         {
-                            parser->state = (c2 == '\\')? State::macro : State::code;
+                            if(c2 == '\\')
+                            {
+                                parser->state = State::macro;
+                            }
                             break;
                         }
                     }
@@ -756,7 +792,7 @@ SIG void Output_Results_To_Buffer(Globals* globals, String directory)
         Push_String(arena, STR("\n\n// Functions:\n"));
         Output(globals, arena, Signature_Type::function);
 
-        #if 0
+        #if PRINT_RESULTS
         
         printf(output_ptr);
         
