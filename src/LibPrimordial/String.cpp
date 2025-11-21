@@ -45,6 +45,18 @@ SIG char First(String str)
 }
 
 
+SIG char At(String str, u64 idx)
+{
+    char result = 0;
+    if(str.ptr && idx < str.length)
+    {
+        result = str.ptr[idx];
+    }
+
+    return result;
+}
+
+
 SIG bool Is_Capital_Letter(char c)
 {
     bool result = (c >= 'A' && c <= 'Z');

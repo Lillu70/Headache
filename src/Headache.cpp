@@ -1,9 +1,12 @@
 
+// TODO: Support for multi-line function declaritions.
+
 #define PRINT_RESULTS 0
 
 #include <stdio.h>
 
 #include "LibPrimordial\Primitives.h"
+
 #include "LibPrimordial\Basic.cpp"
 #include "LibPrimordial\String.cpp"
 #include "LibPrimordial\Arena.cpp"
@@ -16,51 +19,30 @@ constexpr String keyword_union          = STR("union ");
 constexpr String keyword_enum           = STR("enum ");
 constexpr String keyword_enum_class     = STR("enum class ");
 constexpr String keyword_namespace      = STR("namespace ");
-constexpr String single_line_comment    = STR("//");
+constexpr String line_comment_start     = STR("//");
 constexpr String disabled_start         = STR("#if 0");
 constexpr String disabled_end           = STR("#endif");
+constexpr String pound_define           = STR("#define");
 constexpr String block_comment_start    = STR("/*");
 constexpr String block_comment_end      = STR("*/");
 constexpr String include_directive      = STR("#include ");
+constexpr String paste_directive        = STR("HEADACHE(");
 constexpr String output_name            = STR("HEADACHE_OUTPUT.h");
 
 #define PASTE_AS_STRING(X) STR(PASTE_AS_CSTRING(X))
-
-namespace Stats
-{
-    #define STATS(X)    \
-    X(might),           \
-    X(accuracy),        \
-    X(dodge),           \
-    X(vitality),        \
-    X(speed),           \
-    X(perception),      \
-    X(resistance),      \
-    
-    enum T
-    {
-        STATS(PASTE)
-        COUNT
-    };
-    
-    
-    String name[] = 
-    {
-        STATS(PASTE_AS_STRING)
-    };
-    
-    #undef STATS
-};
-
 #define SPACES_PER_INDENTATION 4
+
 
 enum class State
 {
     code,
     error,
-    seek,
     macro,
+    string_literal,
+    character_literal,
+    line_comment,
     block_comment,
+    seek_paste_directive_end,
     disabled,
 };
 
@@ -74,6 +56,13 @@ namespace Signature_Type
         COUNT,
     };
 }
+
+
+enum class Push_Type
+{
+    line,
+    raw,
+};
 
 
 struct Signature
@@ -107,9 +96,6 @@ struct Namespace_List
     String spacename;
     u64 block_count;
     u64 depth;
-
-    //Signature_Root functions;
-    //Signature_Root structs;
     
     Signature_Root signatures[Signature_Type::COUNT];
     u64 counts[Signature_Type::COUNT];
@@ -125,12 +111,16 @@ struct Parser
     String file;
     u64 line_count;
     u64 open_block_count;
+    u64 open_brace_count;
+    u64 paste_directive_start;
     char* last_new_line;
 
     Namespace_List space;
     Namespace_List* headspace;
 
     Parser* next;
+
+    bool line_start;
 };
 
 
@@ -144,6 +134,18 @@ struct Globals
     Parser* parsers_head;
 };
 
+SIG void Testing_This_Style(){
+    // Generally { don't really like this style, but it should also work.
+    /*
+    { <- open brace in a comment!
+    */
+
+    #define XXXXXXX { // <- hehe!
+
+    if(0){
+        {};
+    }
+}
 
 SIG String Target_Directory(String path)
 {
@@ -163,35 +165,39 @@ SIG String Target_Directory(String path)
     return result;
 }
 
+HEADACHE(typedef void FUNCTION(int, int, int);)
 
-SIG u64 Push_Signature(Globals* globals, Parser* parser, String str, Signature_Type::T t)
+SIG u64 Push_Signature(Globals* globals, Parser* parser, String str, Signature_Type::T t, Push_Type push_type)
 {
     String copy = str;
 
-    for(u64 i = 0; i < str.length; ++i)
+    if(push_type == Push_Type::line)
     {
-        char c = str.ptr[i];
-        if(c == '\n')
+        for(u64 i = 0; i < str.length; ++i)
         {
-            while(i < str.length)
+            char c = str.ptr[i];
+            if(c == '\n')
             {
-                if(Is_Whitespace(str.ptr[i]))
+                while(i < str.length)
                 {
-                    i -= 1;
+                    if(Is_Whitespace(str.ptr[i]))
+                    {
+                        i -= 1;
+                    }
+                    else
+                    {
+                        break;
+                    }
                 }
-                else
-                {
-                    break;
-                }
+                
+                str.length = i + 1;
+                break;
             }
-            
-            str.length = i + 1;
-            break;
         }
+        
+        str = Skip_Whitespace(str);
     }
-    
 
-    str = Skip_Whitespace(str);
     u64 effective_length = str.length;
     
     if(str.length)
@@ -199,13 +205,13 @@ SIG u64 Push_Signature(Globals* globals, Parser* parser, String str, Signature_T
         //TODO: Add validation... does this look like a function signature?
         bool valid = true;
 
+        if(push_type != Push_Type::raw)
         {
             String tmp = Forward(copy, str.length);
             tmp = Skip_Whitespace(tmp);
             valid = First(tmp) == '{';
         }
         
-
         if(valid)
         {
             for(u64 i = 0; i < str.length; ++i)
@@ -259,12 +265,262 @@ SIG u64 Push_Signature(Globals* globals, Parser* parser, String str, Signature_T
     return str.length;
 }
 
+
+HEADACHE(typedef void FUNCTION(int, int, int);)
+
+
 // FORWARDS FUCKING DECLARE!!!! THIS WHY I AM DOING THIS PROJECT!!!!
 void Parse_File(Globals* globals, String directory, String path);
 
 
+SIG void Process_Mode_Code(u64* idx, char c, String str, Parser* parser, Globals* globals)
+{
+    if(!Is_Whitespace(c))
+    {
+        if(c == '{')
+        {
+            parser->open_block_count += 1;
+        }
+        else if (c == '}')
+        {
+            Namespace_List* headspace = parser->headspace;
+            if(parser->open_block_count == headspace->block_count && !Match_Case_Sensitive(headspace->spacename, STR("GLOBAL ROOT")))
+            {
+                parser->headspace = headspace->prev;
+                if(!parser->headspace)
+                {
+                    Assert(0);
+                    parser->state = State::error;
+                }
+            }
+            
+            Assert(parser->open_block_count);
+            parser->open_block_count -= 1;
+        }
+
+        u64 root_block_count = parser->headspace->block_count;
+
+        switch(c)
+        {
+            case '\'':
+            {
+                parser->state = State::character_literal;
+            }break;
+
+
+            case '"':
+            {
+                parser->state = State::string_literal;
+            }break;
+
+
+            case block_comment_start.ptr[0]:
+            {
+                String A = Forward(parser->file, *idx + 1);
+                String B = Forward(block_comment_start, 1);
+                String C = Forward(line_comment_start, 1);
+
+                if(Match_Beginning_Case_Sensitive(A, B))
+                {
+                    parser->state = State::block_comment;
+                    *idx += B.length;
+                }
+                else if(Match_Beginning_Case_Sensitive(A, C))
+                {
+                    parser->state = State::line_comment;
+                    *idx += C.length;
+                }
+            }break;
+
+
+            case '#':
+            {
+                String A = Forward(parser->file, *idx + 1);
+                String B = Forward(disabled_start, 1);
+                String C = Forward(include_directive, 1);
+                String D = Forward(pound_define, 1);
+
+                // Beginning of #if 0
+                if(Match_Beginning_Case_Sensitive(A, B))
+                {
+                    parser->state = State::disabled;
+                    *idx += B.length;
+                }
+
+
+                // #include ...
+                else if(Match_Beginning_Case_Sensitive(A, C))
+                {
+                    *idx += C.length;
+                    String include  = Forward(parser->file, *idx);
+                    include         = Skip_Spaces_And_Tabs(include);
+                    include.length  = Line_Length(include);
+                    
+                    if(include.length)
+                    {
+                        switch(include.ptr[0])
+                        {
+                            case '<':
+                            {
+                                include = Forward(include, 1);
+
+                                u64 end;
+                                if(Seek(include, '>', &end))
+                                {
+                                    include.length = end;
+                                    Parse_File(globals, parser->directory, include);
+                                }
+                            }break;
+
+                            case '"':
+                            {
+                                include = Forward(include, 1);
+
+                                u64 end;
+                                if(Seek(include, '"', &end))
+                                {
+                                    include.length = end;
+                                    if(include.length)
+                                    {
+                                        Parse_File(globals, parser->directory, include);
+                                        int a = 0;
+                                    }
+                                }
+                            }break;
+                        }
+                    }
+                }
+                // #define ...
+                else if(Match_Beginning_Case_Sensitive(A, D))
+                {
+                    parser->state = State::macro;
+                }
+
+            }break;
+        }
+
+        if(parser->open_block_count == root_block_count && parser->line_start)
+        {
+            switch(c)
+            {
+                case keyword_namespace.ptr[0]:
+                {
+                    String A = Forward(parser->file, *idx + 1);
+                    String B = Forward(keyword_namespace, 1);
+
+                    if(Match_Beginning_Case_Sensitive(A, B))
+                    {
+                        *idx += B.length;
+
+                        A = Forward(A, B.length);
+                        A = Skip_Whitespace(A);
+                        String next_word = A;
+                        if(Seek(next_word, Is_Whitespace, &next_word.length))
+                        {
+                            // Check that the namespace is actually opened.
+                            A = Forward(A, next_word);
+                            A = Skip_Whitespace(A);
+                            if(First(A) == '{')
+                            {
+                                Namespace_List* nl = Push_Struct(&globals->arena, Namespace_List);
+                                Namespace_List* headspace = parser->headspace;
+                                
+                                if(headspace->deeper == 0)
+                                {
+                                    headspace->deeper = nl;
+                                }
+                                else
+                                {
+                                    Namespace_List* parallel_head = headspace->deeper;
+                                    while(parallel_head->parallel)
+                                    {
+                                        parallel_head = parallel_head->parallel;
+                                    }
+
+                                    parallel_head->parallel = nl;
+
+                                    Assert(parser->space.parallel == 0);
+                                }
+
+                                nl->prev = headspace;
+                                nl->block_count = parser->open_block_count + 1;
+                                nl->spacename = next_word;
+                                nl->depth = nl->prev->depth + 1;
+                                
+                                parser->headspace = nl;
+                            }
+
+                            else
+                            {
+                                // CONSIDER: Error?
+                            }
+                        }
+                    }
+                }break;
+
+                case marker.ptr[0]:
+                {
+                    String A = Forward(parser->file, *idx + 1);
+                    String B = Forward(marker, 1);
+
+                    if(Match_Beginning_Case_Sensitive(A, B))
+                    {
+                        u64 length = Push_Signature(globals, parser, Forward(parser->file, *idx), Signature_Type::function, Push_Type::line);
+                        *idx += B.length;
+                    }
+
+                }break;
+
+                case paste_directive.ptr[0]:
+                {
+                    String A = Forward(parser->file, *idx + 1);
+                    String B = Forward(paste_directive, 1);
+
+                    if(Match_Beginning_Case_Sensitive(A, B))
+                    {
+                        *idx += B.length;
+                        parser->paste_directive_start = *idx + 1;
+                        parser->state = State::seek_paste_directive_end;
+
+                        if(parser->open_brace_count)
+                        {
+                            Assert(0);
+                            parser->state = State::error;
+                        }
+
+                        parser->open_brace_count = 1;
+                    }
+
+                }break;
+
+                case keyword_union.ptr[0]:
+                case keyword_enum.ptr[0]:
+                case keyword_struct.ptr[0]:
+                {
+                    String A = Forward(parser->file, *idx);
+                    
+                    bool match = 
+                        Match_Beginning_Case_Sensitive(A, keyword_struct)       || 
+                        Match_Beginning_Case_Sensitive(A, keyword_union)        ||
+                        Match_Beginning_Case_Sensitive(A, keyword_enum_class)   ||
+                        Match_Beginning_Case_Sensitive(A, keyword_enum);
+
+                    if(match)
+                    {
+                        u64 length = Push_Signature(globals, parser, Forward(parser->file, *idx), Signature_Type::data_type, Push_Type::line);
+                    }
+
+                }break;
+            }
+        }
+    }
+}
+
+
 SIG void Run_Parser(Globals* globals, Parser* parser)
 {
+    // { should not count as an open clause!
+
     for(u64 i = 0; i < parser->file.length; ++i)
     {
         char c = parser->file.ptr[i];
@@ -274,211 +530,55 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
         {
             case State::code:
             {
-                if(c == '{')
+                Process_Mode_Code(&i, c, str, parser, globals);
+            }break;
+
+
+            case State::character_literal:
+            {
+                if(c == '\'' && ( At(parser->file, i - 1) != '\\' || At(parser->file, i - 2) == '\\'))
                 {
-                    parser->open_block_count += 1;
+                    parser->state = State::code;
                 }
-                else if (c == '}')
+            }break;
+
+
+            case State::string_literal:
+            {
+                if(c == '\"' && ( At(parser->file, i - 1) != '\\' || At(parser->file, i - 2) == '\\'))
                 {
-                    Namespace_List* headspace = parser->headspace;
-                    if(parser->open_block_count == headspace->block_count)
+                    parser->state = State::code;
+                }
+            }break;
+
+
+            case State::seek_paste_directive_end:
+            {
+                if(c == ')')
+                {
+                    parser->open_brace_count -= 1;
+                    if(!parser->open_brace_count)
                     {
-                        parser->headspace = headspace->prev;
-                        if(!parser->headspace)
+                        String paste_content = Forward(parser->file, parser->paste_directive_start);
+                        paste_content.length = i - parser->paste_directive_start;
+                        if(paste_content.length && paste_content.length < parser->file.length)
                         {
+                            Push_Signature(globals, parser, paste_content, Signature_Type::data_type, Push_Type::raw);
+                            parser->state = State::code;
+                        }
+                        else
+                        {
+                            Assert(0);
                             parser->state = State::error;
-                            continue;
                         }
                     }
-                    
-                    parser->open_block_count -= 1;
                 }
-
-                u64 root_block_count = parser->headspace->block_count;
-
-                if(!Is_Whitespace(c) && parser->open_block_count == root_block_count)
+                else if(c == '(')
                 {
-                    switch(c)
-                    {
-                        case block_comment_start.ptr[0]:
-                        {
-                            String A = Forward(parser->file, i + 1);
-                            String B = Forward(block_comment_start, 1);
-
-                            if(Match_Beginning_Case_Sensitive(A, B))
-                            {
-                                parser->state = State::block_comment;
-                                i += B.length + 1;
-                            }
-
-                        }break;
-
-                        case keyword_namespace.ptr[0]:
-                        {
-                            String A = Forward(parser->file, i + 1);
-                            String B = Forward(keyword_namespace, 1);
-
-                            if(Match_Beginning_Case_Sensitive(A, B))
-                            {
-                                i += B.length;
-
-                                A = Forward(A, B.length);
-                                A = Skip_Whitespace(A);
-                                String next_word = A;
-                                if(Seek(next_word, Is_Whitespace, &next_word.length))
-                                {
-                                    // Check that the namespace is actually opened.
-                                    A = Forward(A, next_word);
-                                    A = Skip_Whitespace(A);
-                                    if(First(A) == '{')
-                                    {
-                                        Namespace_List* nl = Push_Struct(&globals->arena, Namespace_List);
-                                        Namespace_List* headspace = parser->headspace;
-                                        
-                                        if(headspace->deeper == 0)
-                                        {
-                                            headspace->deeper = nl;
-                                        }
-                                        else
-                                        {
-                                            Namespace_List* parallel_head = headspace->deeper;
-                                            while(parallel_head->parallel)
-                                            {
-                                                parallel_head = parallel_head->parallel;
-                                            }
-
-                                            parallel_head->parallel = nl;
-
-                                            Assert(parser->space.parallel == 0);
-                                        }
-
-                                        nl->prev = headspace;
-                                        nl->block_count = parser->open_block_count + 1;
-                                        nl->spacename = next_word;
-                                        nl->depth = nl->prev->depth + 1;
-                                        
-                                        parser->headspace = nl;
-                                    }
-
-                                    else
-                                    {
-                                        // CONSIDER: Error?
-                                    }
-                                }
-                            }
-                            
-                        }break;
-
-                        case marker.ptr[0]:
-                        {
-                            String A = Forward(parser->file, i + 1);
-                            String B = Forward(marker, 1);
-
-                            if(Match_Beginning_Case_Sensitive(A, B))
-                            {
-                                parser->state = State::seek;
-                                
-                                i += B.length + 1;
-                                //u64 length = Push_Signature(&parser->functions, Forward(parser->file, i), parser->line_count, globals);
-                                u64 length = Push_Signature(globals, parser, Forward(parser->file, i), Signature_Type::function);
-                            }
-
-                        }break;
-
-                        
-                        case keyword_union.ptr[0]:
-                        case keyword_enum.ptr[0]:
-                        case keyword_struct.ptr[0]:
-                        {
-                            String A = Forward(parser->file, i);
-                            
-                            bool match = 
-                                Match_Beginning_Case_Sensitive(A, keyword_struct)       || 
-                                Match_Beginning_Case_Sensitive(A, keyword_union)        ||
-                                Match_Beginning_Case_Sensitive(A, keyword_enum_class)   ||
-                                Match_Beginning_Case_Sensitive(A, keyword_enum);
-
-                            if(match)
-                            {
-                                parser->state = State::seek;
-
-                                //u64 length = Push_Signature(&parser->structs, Forward(parser->file, i), parser->line_count, globals);
-                                u64 length = Push_Signature(globals, parser, Forward(parser->file, i), Signature_Type::data_type);
-                            }
-
-                        }break;
-
-
-                        case '#':
-                        {
-                            String A = Forward(parser->file, i + 1);
-                            String B = Forward(disabled_start, 1);
-                            String C = Forward(include_directive, 1);
-
-                            // Beginning of #if 0
-                            if(Match_Beginning_Case_Sensitive(A, B))
-                            {
-                                parser->state = State::disabled;
-                                i += B.length + 1;
-                            }
-
-                            // #include ...
-                            else if(Match_Beginning_Case_Sensitive(A, C))
-                            {
-                                i += C.length + 1;
-                                String include  = Forward(parser->file, i);
-                                include         = Skip_Spaces_And_Tabs(include);
-                                include.length  = Line_Length(include);
-                                
-                                if(include.length)
-                                {
-                                    switch(include.ptr[0])
-                                    {
-                                        case '<':
-                                        {
-                                            include = Forward(include, 1);
-
-                                            u64 end;
-                                            if(Seek(include, '>', &end))
-                                            {
-                                                include.length = end;
-                                                Parse_File(globals, parser->directory, include);
-                                            }
-                                        }break;
-
-                                        case '"':
-                                        {
-                                            include = Forward(include, 1);
-
-                                            u64 end;
-                                            if(Seek(include, '"', &end))
-                                            {
-                                                include.length = end;
-                                                Parse_File(globals, parser->directory, include);
-                                            }
-                                        }break;
-                                    }
-                                }
-                            }
-                            
-                            // #define
-                            else
-                            {
-                                parser->state = State::macro;
-                            }
-
-                        }break;
-
-
-                        default:
-                        {
-                            parser->state = State::seek;
-                        }
-                    }
+                    parser->open_brace_count += 1;
                 }
 
             }break;
-
 
             case State::block_comment:
             {
@@ -487,8 +587,8 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
 
                 if(Match_Beginning_Case_Sensitive(A, B))
                 {
-                    parser->state = State::seek;
-                    i += B.length;
+                    parser->state = State::code;
+                    i += B.length - 1;
                 }
             }break;
 
@@ -501,7 +601,7 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
                 if(Match_Beginning_Case_Sensitive(A, B))
                 {
                     parser->state = State::code;
-                    i += B.length;
+                    i += B.length - 1;
                 }
             }break;
 
@@ -527,7 +627,6 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
                 }
             }break;
 
-
             case State::error:
             {
                 // NOTE: This is effectively just a break statement, cpp just doesn't support double break.
@@ -538,15 +637,36 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
 
         if(c == '\n')
         {
+            parser->line_start = true;
             parser->line_count += 1;
+
+            if(parser->line_count == 151)
+            {
+                int a = 0;
+            }
+
             parser->last_new_line = parser->file.ptr + i;
-            if(parser->state == State::seek)
+
+            if(parser->state == State::line_comment)
             {
                 parser->state = State::code;
             }
         }
+        else if(!Is_Whitespace(c))
+        {
+            parser->line_start = false;
+        }
+    }
+
+    Assert(parser->state == State::code);
+
+    if(parser->open_block_count)
+    {
+        Assert(0);
+        parser->state = State::error;
     }
 }
+
 
 
 SIG void Parse_File(Globals* globals, String directory, String path)
@@ -594,6 +714,7 @@ SIG void Parse_File(Globals* globals, String directory, String path)
             parser->path = full_path;
             parser->file = file;
             parser->state = State::code;
+            parser->line_start = true;
             parser->line_count = 1;
             parser->last_new_line = parser->file.ptr;
             parser->directory = Target_Directory(full_path);

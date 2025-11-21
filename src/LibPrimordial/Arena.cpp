@@ -15,11 +15,21 @@ struct Arena
     u64 pages_per_commit;
 };
 
+
+struct Arena_Snapshot
+{
+    u64 position;
+};
+
+
 #define Push_Struct(ARENA, TYPE) (TYPE*)Push(ARENA, sizeof(TYPE))
-#define Push_Array(ARENA, TYPE, COUNT) (TYPE*)Push(ARENA, sizeof(TYPE) * COUNT)
+#define Push_Array(ARENA, TYPE, COUNT) (TYPE*)Push(ARENA, sizeof(TYPE) * (COUNT))
+
 
 SIG void Initialize_Arena(Arena* arena, u64 reserve_byte_count DEF(Gigabytes(64)), u64 pages_per_commit DEF(16))
 {
+    Assert(reserve_byte_count && pages_per_commit);
+
     arena->pages_per_commit = pages_per_commit;
     arena->reserved = reserve_byte_count;
     arena->commited = Kilobytes(4) * arena->pages_per_commit;
@@ -34,14 +44,27 @@ SIG void Initialize_Arena(Arena* arena, u64 reserve_byte_count DEF(Gigabytes(64)
 }
 
 
+SIG Arena Create_Arena(u64 reserve_byte_count DEF(Gigabytes(64)), u64 pages_per_commit DEF(16))
+{
+    Arena arena = {};
+    Initialize_Arena(&arena, reserve_byte_count, pages_per_commit);
+
+    return arena;
+}
+
+
 SIG void Clear(Arena* arena)
 {
+    Mem_Zero(arena->memory, arena->used);
     arena->used = 0;
 }
 
 
 SIG void* Push(Arena* arena, u64 size)
 {
+    Assert(arena->memory);
+    Assert(arena->reserved);
+
     if(arena->used + size > arena->commited)
     {
         u64 page = Kilobytes(4);
@@ -89,15 +112,21 @@ SIG char* Push_String(Arena* arena, String str)
 }
 
 
-SIG u64 Snapshot(Arena* arena)
+SIG Arena_Snapshot Snapshot(Arena* arena)
 {
-    u64 position = arena->used;
+    Arena_Snapshot position = { arena->used };
     return position;
 }
 
 
-SIG void Restore(Arena* arena, u64 position)
+SIG void Restore(Arena* arena, Arena_Snapshot snapshot)
 {
-    Assert(arena->used >= position);
-    arena->used = position;
+    Assert(arena->used >= snapshot.position);
+    arena->used = snapshot.position;
+}
+
+SIG bool Is_Taken(Arena_Snapshot snapshot)
+{
+    bool result = snapshot.position > 0;
+    return result;
 }

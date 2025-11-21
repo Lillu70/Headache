@@ -9,39 +9,43 @@
 
 #define SIG 	// Used for generating header files.
 #define DEF(X)	// Also used for generating header file.
+#define HEADACHE(X) // Used to move a declaration into the generated file.
 
 #define _inline __forceinline
 #define Array_Length(array) (sizeof(array) / sizeof(array[0]))
+#define Offset_Of(TYPE, MEMBER) u64(&((TYPE*)0)->MEMBER)
 
 #define WELD(A, B) A##B
 #define PASTE(name) name
 #define PASTE_AS_CSTRING(name) #name
 #define local_storage static
 
+#define VARNAME(XXX) WELD(LOOPITER, XXX)
+#define LOOP(COUNT) for(u64 VARNAME(__LINE__) = 0; VARNAME(__LINE__) < (COUNT); VARNAME(__LINE__) += 1)
+
+
 #ifdef SLOW
+	#ifndef Assert
+		#define Assert(X) if(!(X)) *((s32*)0) = 666 
 
-#ifndef Assert
-	#define Assert(X) if(!(X)) *((s32*)0) = 666 
+	#endif
 
-#endif
+	#ifndef Terminate
+		#define Terminate(X) *((s32*)0) = 666 
 
-#ifndef Terminate
-	#define Terminate(X) *((s32*)0) = 666 
-
-#endif
+	#endif
 
 #else
 
-#ifndef Assert
-	#define Assert(X) 
+	#ifndef Assert
+		#define Assert(X) 
 
-#endif
+	#endif
 
-#ifndef Terminate
-	#define Terminate(X)
+	#ifndef Terminate
+		#define Terminate(X)
 
-#endif
-
+	#endif
 #endif
 
 

@@ -31,7 +31,7 @@ SIG String OS_Read_Entire_File(String path, Arena* arena)
     // Windows expects a null terminated buffer. Strings as they are slices; don't have that quarentee.
     // Therefore make a copy and inject zero at the end.
     
-    u64 snapshot = Snapshot(arena);
+    Arena_Snapshot snapshot = Snapshot(arena);
 
     char* path_buffer = (char*)Push(arena, path.length + 1);
     Mem_Copy(path_buffer, path.ptr, path.length);
@@ -106,7 +106,7 @@ SIG bool OS_Write_File(String output, String path, Arena* arena)
     // Therefore make a copy and inject zero at the end.
     bool result = true;
 
-    u64 snapshot = Snapshot(arena);
+    Arena_Snapshot snapshot = Snapshot(arena);
 
     char* path_buffer = (char*)Push(arena, path.length + 1);
     Mem_Copy(path_buffer, path.ptr, path.length);
@@ -158,6 +158,13 @@ SIG bool OS_Write_File(String output, String path, Arena* arena)
     }
 
     return result;
+}
+
+
+SIG void* OS_Get_Executable_Base_Address()
+{
+    WModuleHandle module = GetModuleHandleA(0);
+    return module;
 }
 
 

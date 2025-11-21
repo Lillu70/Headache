@@ -5,47 +5,7 @@
 // All rights reserved.
 // ===================================
 
-
-SIG s16 Abs(s16 v)
-{
-    s16 result = (v >= 0)? v : v * -1;
-    return result;
-}
-
-
-SIG u64 Min(u64 a, u64 b)
-{
-    u64 result = (a < b)? a : b;
-    return result;
-}
-
-
-SIG s16 Max(s16 a, s16 b)
-{
-    s16 result = (a > b)? a : b;
-    return result;
-}
-
-
-SIG u64 Max(u64 a, u64 b)
-{
-    u64 result = (a > b)? a : b;
-    return result;
-}
-
-
-SIG u64 Square(u64 v)
-{
-    u64 result = v * v;
-    return result;
-}
-
-
-SIG u64 Cube(u64 v)
-{
-    u64 result = v * v * v;
-    return result;
-}
+#include "Basic_Generated.cpp"
 
 
 SIG u64 Kilobytes(u64 v)
@@ -87,4 +47,11 @@ SIG void Mem_Copy(void* dest, void* src, u64 count)
     {
         *a = *b;
     }
+}
+
+
+SIG u64 Weld(u32 a, u32 b)
+{
+    u64 result = (u64(a) << 32) | (b);
+    return result;
 }
