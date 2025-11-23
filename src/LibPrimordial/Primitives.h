@@ -9,7 +9,7 @@
 
 #define SIG 	// Used for generating header files.
 #define DEF(X)	// Also used for generating header file.
-#define HEADACHE(X) // Used to move a declaration into the generated file.
+#define HEADACHE(X)
 
 #define _inline __forceinline
 #define Array_Length(array) (sizeof(array) / sizeof(array[0]))

@@ -118,7 +118,8 @@ struct Parser
     Namespace_List space;
     Namespace_List* headspace;
 
-    Parser* next;
+    Parser* deeper_next;
+    Parser* parallel_next;
 
     bool line_start;
 };
@@ -129,23 +130,9 @@ struct Globals
     Arena arena;
 
     u64 longest_signature_length;
-
     Parser* parsers_root;
-    Parser* parsers_head;
 };
 
-SIG void Testing_This_Style(){
-    // Generally { don't really like this style, but it should also work.
-    /*
-    { <- open brace in a comment!
-    */
-
-    #define XXXXXXX { // <- hehe!
-
-    if(0){
-        {};
-    }
-}
 
 SIG String Target_Directory(String path)
 {
@@ -165,7 +152,6 @@ SIG String Target_Directory(String path)
     return result;
 }
 
-HEADACHE(typedef void FUNCTION(int, int, int);)
 
 SIG u64 Push_Signature(Globals* globals, Parser* parser, String str, Signature_Type::T t, Push_Type push_type)
 {
@@ -180,7 +166,8 @@ SIG u64 Push_Signature(Globals* globals, Parser* parser, String str, Signature_T
             {
                 while(i < str.length)
                 {
-                    if(Is_Whitespace(str.ptr[i]))
+                    c = str.ptr[i];
+                    if(Is_Whitespace(c))
                     {
                         i -= 1;
                     }
@@ -266,11 +253,7 @@ SIG u64 Push_Signature(Globals* globals, Parser* parser, String str, Signature_T
 }
 
 
-HEADACHE(typedef void FUNCTION(int, int, int);)
-
-
-// FORWARDS FUCKING DECLARE!!!! THIS WHY I AM DOING THIS PROJECT!!!!
-void Parse_File(Globals* globals, String directory, String path);
+void Parse_File(Globals* globals, Parser* src, String directory, String path);
 
 
 SIG void Process_Mode_Code(u64* idx, char c, String str, Parser* parser, Globals* globals)
@@ -368,7 +351,7 @@ SIG void Process_Mode_Code(u64* idx, char c, String str, Parser* parser, Globals
                                 if(Seek(include, '>', &end))
                                 {
                                     include.length = end;
-                                    Parse_File(globals, parser->directory, include);
+                                    Parse_File(globals, parser, parser->directory, include);
                                 }
                             }break;
 
@@ -382,8 +365,7 @@ SIG void Process_Mode_Code(u64* idx, char c, String str, Parser* parser, Globals
                                     include.length = end;
                                     if(include.length)
                                     {
-                                        Parse_File(globals, parser->directory, include);
-                                        int a = 0;
+                                        Parse_File(globals, parser, parser->directory, include);
                                     }
                                 }
                             }break;
@@ -465,8 +447,8 @@ SIG void Process_Mode_Code(u64* idx, char c, String str, Parser* parser, Globals
 
                     if(Match_Beginning_Case_Sensitive(A, B))
                     {
+                        *idx += B.length + 1;
                         u64 length = Push_Signature(globals, parser, Forward(parser->file, *idx), Signature_Type::function, Push_Type::line);
-                        *idx += B.length;
                     }
 
                 }break;
@@ -519,6 +501,7 @@ SIG void Process_Mode_Code(u64* idx, char c, String str, Parser* parser, Globals
 
 SIG void Run_Parser(Globals* globals, Parser* parser)
 {
+    // NOTE: Just a comment to test out the program output when it self is fed into it self.
     // { should not count as an open clause!
 
     for(u64 i = 0; i < parser->file.length; ++i)
@@ -640,11 +623,6 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
             parser->line_start = true;
             parser->line_count += 1;
 
-            if(parser->line_count == 151)
-            {
-                int a = 0;
-            }
-
             parser->last_new_line = parser->file.ptr + i;
 
             if(parser->state == State::line_comment)
@@ -668,59 +646,96 @@ SIG void Run_Parser(Globals* globals, Parser* parser)
 }
 
 
-
-SIG void Parse_File(Globals* globals, String directory, String path)
+SIG bool Is_Already_Parsed(Parser* parser, String path)
 {
-    bool is_output = Match_Case_Sensitive(output_name, path);
-    // NOTE: To avoid pasting the already generated forward decloration back in don't go into a file with the output name.
-    // TODO: Actually look if a signature looks like a forward declaration, if it does, skip it!
-
-    bool not_yet_parsed = true;
+    bool result = false;
+    if(parser)
     {
-        Parser* parser = globals->parsers_root;
-        
-        while(parser)
+        if(parser->deeper_next)
         {
-            if(Match_Case_Sensitive(path, parser->path))
+            result = Is_Already_Parsed(parser->deeper_next, path);
+        }
+        
+        if(!result)
+        {
+            while(parser)
             {
-                not_yet_parsed = false;
-                break;
-            }
+                if(Match_Case_Sensitive(path, parser->path))
+                {
+                    result = true;
+                    break;
+                }
 
-            parser = parser->next;
+                parser = parser->parallel_next;
+            }
         }
     }
 
-    if(not_yet_parsed && !is_output)
+    return result;
+}
+
+
+SIG void Parse_File(Globals* globals, Parser* src, String directory, String path)
+{
+    if(Match_Case_Sensitive(path, STR("Basic_Generated.cpp")))
+    {
+        int a = 0;
+    }
+
+    bool is_output = Match_Case_Sensitive(output_name, path);
+
+    if(!is_output && !Is_Already_Parsed(globals->parsers_root, path))
     {
         String full_path = Merge(directory, path, &globals->arena);
 
-        String file = OS_Read_Entire_File(full_path, &globals->arena);
+        String file = OS_Read_File(full_path, &globals->arena);
         if(file.length)
         {
             Parser* parser = Push_Struct(&globals->arena, Parser);
             
-            if(!globals->parsers_root)
-            {
-                globals->parsers_root = parser;
-                globals->parsers_head = parser;
-            }
-            else
-            {
-                globals->parsers_head->next = parser;
-                globals->parsers_head = parser;
-            }
-            
-            parser->path = full_path;
+            // Initialize
             parser->file = file;
+            parser->path = full_path;
             parser->state = State::code;
             parser->line_start = true;
             parser->line_count = 1;
             parser->last_new_line = parser->file.ptr;
-            parser->directory = Target_Directory(full_path);
+            parser->directory = directory;
             parser->headspace = &parser->space;
             parser->space.spacename = STR("GLOBAL ROOT");
 
+            // Link
+            if(globals->parsers_root)
+            {
+                Assert(src);
+                if(src->deeper_next)
+                {
+                    parser->directory = src->deeper_next->directory;
+
+                    // Seek end of chain.
+                    Parser* node = src->deeper_next;
+                    while(node->parallel_next)
+                    {
+                        node = node->parallel_next;
+                    }
+                    
+                    Assert(!node->parallel_next);
+                    node->parallel_next = parser;
+                }
+                else
+                {
+                    src->deeper_next = parser;
+                    String path_without_file_name = Target_Directory(path);
+                    parser->directory = Merge(directory, path_without_file_name, &globals->arena);
+                }
+            }
+            else
+            {
+                Assert(!src);
+                globals->parsers_root = parser;
+            }
+
+            // Execute
             Run_Parser(globals, parser);
         }
     }
@@ -875,23 +890,25 @@ SIG void Namespace_Walker(Globals* globals, Namespace_List* list, s64 depth, Sig
 }
 
 
-SIG void Output(Globals* globals, Arena* arena, Signature_Type::T t)
+SIG void Output(Globals* globals, Parser* parser, Signature_Type::T t)
 {
-    Parser* parser = globals->parsers_root;
-
     while(parser)
     {
+        if(parser->deeper_next)
+        {
+            Output(globals, parser->deeper_next, t);
+        }
+        
         if(parser->state != State::error && parser->space.counts[t])
         {       
-            Push_String(arena, STR("\n// FILE: "));
-            Push_String(arena, parser->path);
-            Push_String(arena, STR(":\n"));
+            Push_String(&globals->arena, STR("\n// FILE: "));
+            Push_String(&globals->arena, parser->path);
+            Push_String(&globals->arena, STR(":\n"));
             
             Namespace_Walker(globals, &parser->space, 0, t);
         }
         
-
-        parser = parser->next;
+        parser = parser->parallel_next;
     }
 }
 
@@ -908,10 +925,10 @@ SIG void Output_Results_To_Buffer(Globals* globals, String directory)
         char* output_ptr = Push_String(arena, title);
 
         Push_String(arena, STR("\n\n// Data types:\n"));
-        Output(globals, arena, Signature_Type::data_type);
+        Output(globals, globals->parsers_root, Signature_Type::data_type);
         
         Push_String(arena, STR("\n\n// Functions:\n"));
-        Output(globals, arena, Signature_Type::function);
+        Output(globals, globals->parsers_root, Signature_Type::function);
 
         #if PRINT_RESULTS
         
@@ -942,7 +959,7 @@ s32 main(s32 argc, char** argv)
 
         Initialize_Arena(&globals.arena, Gigabytes(64), 16);
 
-        Parse_File(&globals, directory, path);
+        Parse_File(&globals, 0, directory, path);
 
         Output_Results_To_Buffer(&globals, directory);
     }
