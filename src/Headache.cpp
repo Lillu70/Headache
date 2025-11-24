@@ -1,8 +1,6 @@
 
 // TODO: Support for multi-line function declaritions.
 
-#define PRINT_RESULTS 0
-
 #include <stdio.h>
 
 #include "LibPrimordial\Primitives.h"
@@ -651,23 +649,21 @@ SIG bool Is_Already_Parsed(Parser* parser, String path)
     bool result = false;
     if(parser)
     {
-        if(parser->deeper_next)
-        {
-            result = Is_Already_Parsed(parser->deeper_next, path);
-        }
         
-        if(!result)
+        while(parser)
         {
-            while(parser)
+            if(parser->deeper_next)
             {
-                if(Match_Case_Sensitive(path, parser->path))
-                {
-                    result = true;
-                    break;
-                }
-
-                parser = parser->parallel_next;
+                result = Is_Already_Parsed(parser->deeper_next, path);
             }
+
+            if(result || Match_Case_Sensitive(path, parser->path))
+            {
+                result = true;
+                break;
+            }
+
+            parser = parser->parallel_next;
         }
     }
 
@@ -677,11 +673,6 @@ SIG bool Is_Already_Parsed(Parser* parser, String path)
 
 SIG void Parse_File(Globals* globals, Parser* src, String directory, String path)
 {
-    if(Match_Case_Sensitive(path, STR("Basic_Generated.cpp")))
-    {
-        int a = 0;
-    }
-
     bool is_output = Match_Case_Sensitive(output_name, path);
 
     if(!is_output && !Is_Already_Parsed(globals->parsers_root, path))
@@ -700,9 +691,11 @@ SIG void Parse_File(Globals* globals, Parser* src, String directory, String path
             parser->line_start = true;
             parser->line_count = 1;
             parser->last_new_line = parser->file.ptr;
-            parser->directory = directory;
             parser->headspace = &parser->space;
             parser->space.spacename = STR("GLOBAL ROOT");
+            
+            String path_without_file_name = Target_Directory(path);
+            parser->directory = Merge(directory, path_without_file_name, &globals->arena);
 
             // Link
             if(globals->parsers_root)
@@ -710,8 +703,6 @@ SIG void Parse_File(Globals* globals, Parser* src, String directory, String path
                 Assert(src);
                 if(src->deeper_next)
                 {
-                    parser->directory = src->deeper_next->directory;
-
                     // Seek end of chain.
                     Parser* node = src->deeper_next;
                     while(node->parallel_next)
@@ -725,8 +716,6 @@ SIG void Parse_File(Globals* globals, Parser* src, String directory, String path
                 else
                 {
                     src->deeper_next = parser;
-                    String path_without_file_name = Target_Directory(path);
-                    parser->directory = Merge(directory, path_without_file_name, &globals->arena);
                 }
             }
             else
