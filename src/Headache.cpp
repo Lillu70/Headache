@@ -1,7 +1,13 @@
 
 // TODO: Support for multi-line function declaritions.
+// TODO: Fix relative paths.
 
 #include <stdio.h>
+#include <stdlib.h>
+
+//#define Assert(X) \
+//if(!(X)){printf("\nHEADACHE: Assert triggered at line: %d\n", __LINE__); abort(); }
+
 
 #include "LibPrimordial\Primitives.h"
 
@@ -132,6 +138,45 @@ struct Globals
 };
 
 
+SIG void Verify_Signatures_Internal(Namespace_List* nl, u64 max_line, u64 max_lenght)
+{
+    while(nl)
+    {
+        for(u64 i = 0; i < Array_Length(nl->signatures); ++i)
+        {
+            Signature_Root* root = nl->signatures + i;
+            Signature_Bucket* bucket = root->root;
+            while(bucket)
+            {
+                bool is_head = (bucket == root->head);
+                u64 count = (is_head)? root->head_count : Array_Length(bucket->signatures);
+                for(u64 j = 0; j < count; ++j)
+                {
+                    Signature sig = bucket->signatures[j];
+                    Assert(sig.slice.length <= max_lenght);
+                    Assert(sig.line < max_line);
+                }
+
+                bucket = bucket->next;
+            }
+        }
+
+        if(nl->deeper)
+        {
+            Verify_Signatures_Internal(nl->deeper, max_line, max_lenght);
+        }
+
+        nl = nl->parallel;
+    }
+}
+
+
+SIG void Verify_Signatures(Globals* globals, Parser* parser)
+{
+    Verify_Signatures_Internal(&parser->space, parser->line_count, globals->longest_signature_length);
+}
+
+
 SIG String Target_Directory(String path)
 {
     u64 length = 0;
@@ -231,6 +276,7 @@ SIG u64 Push_Signature(Globals* globals, Parser* parser, String str, Signature_T
             Signature* sig = root->head->signatures + root->head_count;
             *sig = {str, parser->line_count};
 
+
             root->head_count += 1;
 
             effective_length += parser->headspace->depth * SPACES_PER_INDENTATION;
@@ -241,6 +287,9 @@ SIG u64 Push_Signature(Globals* globals, Parser* parser, String str, Signature_T
                 nl->counts[t] += 1;
                 nl = nl->prev;
             }
+            
+            Assert(sig->slice.length < 1000);
+            Assert(sig->line < 10000);
         }
     }
 
@@ -761,9 +810,8 @@ SIG void Output_Signature_List(Globals* globals, Signature_Root* root, u64 depth
         u64 count = (is_head)? root->head_count : Array_Length(bucket->signatures);
         for(u64 i = 0; i < count; ++i)
         {
-
             Signature sig = bucket->signatures[i];
-            
+
             u64 def_count = 0;
             for(u64 j = 0; j < sig.slice.length; ++j)
             {
@@ -778,13 +826,13 @@ SIG void Output_Signature_List(Globals* globals, Signature_Root* root, u64 depth
 
             U64_To_String_Memory string_memory;
             String line_number = To_String(sig.line, &string_memory);
-            u64 extra = 2 + line_number.length + postfix.length;
+            u64 extra = 1 + line_number.length + postfix.length;
 
             u64 indent_characters = Output_Indentation(&globals->arena, depth);
             
-            u64 desired_line_length = globals->longest_signature_length - indent_characters;
+            u64 desired_line_length = globals->longest_signature_length - indent_characters + 1;
             u64 effective_slice_length = sig.slice.length - (def_count * (def_marker.length + 1)) + (def_count * 2);
-            
+            Assert(desired_line_length + extra > effective_slice_length);
             
             char* tmp = (char*)Push(&globals->arena, desired_line_length + extra);
             
@@ -825,22 +873,20 @@ SIG void Output_Signature_List(Globals* globals, Signature_Root* root, u64 depth
 
             tmp[effective_slice_length] = ';';
             
-            for(u64 j = effective_slice_length + 1; j <= desired_line_length; ++j)
+            for(u64 j = effective_slice_length + 1; j < desired_line_length; ++j)
             {
                 tmp[j] = ' ';
             }
 
-            char* w = tmp + desired_line_length + 1;
+            char* w = tmp + desired_line_length;
             
             Mem_Copy(w, postfix.ptr, postfix.length);
             Mem_Copy(w + postfix.length, line_number.ptr, line_number.length);
             w[postfix.length + line_number.length] = '\n';
-            w[postfix.length + line_number.length + 1] = 0;
         }
 
         bucket = bucket->next;
     }
-                
 }
 
 
@@ -850,7 +896,6 @@ SIG void Namespace_Walker(Globals* globals, Namespace_List* list, s64 depth, Sig
 
     while(list)
     {
-
         if(depth && list->counts[t])
         {
             Output_Indentation(arena, depth - 1);
@@ -860,7 +905,7 @@ SIG void Namespace_Walker(Globals* globals, Namespace_List* list, s64 depth, Sig
             Output_Indentation(arena, depth - 1);
             Push_String(arena, STR("{\n"));
         }
-        
+
         Output_Signature_List(globals, list->signatures + t, depth);
 
         if(list->deeper)
@@ -889,7 +934,7 @@ SIG void Output(Globals* globals, Parser* parser, Signature_Type::T t)
         }
         
         if(parser->state != State::error && parser->space.counts[t])
-        {       
+        {
             Push_String(&globals->arena, STR("\n// FILE: "));
             Push_String(&globals->arena, parser->path);
             Push_String(&globals->arena, STR(":\n"));
@@ -919,18 +964,16 @@ SIG void Output_Results_To_Buffer(Globals* globals, String directory)
         Push_String(arena, STR("\n\n// Functions:\n"));
         Output(globals, globals->parsers_root, Signature_Type::function);
 
-        #if PRINT_RESULTS
-        
+        #if PRINT_RESULTS        
         printf(output_ptr);
-        
-        #else
-        
+        #endif
+
         u64 output_length = (char*)Push(arena, 0) - output_ptr;
         String output = {output_ptr, output_length};
         String output_full_path = Merge(directory, output_name, arena);
+        
+        printf("Writing *HEADACHE* output on disk... path: %s\n", output_full_path.ptr);
         OS_Write_File(output, output_full_path, arena);
-
-        #endif
     }
 }
 
