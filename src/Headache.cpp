@@ -5,8 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-//#define Assert(X) \
-//if(!(X)){printf("\nHEADACHE: Assert triggered at line: %d\n", __LINE__); abort(); }
+#define Assert(X) \
+if(!(X)){printf("\nHEADACHE: Assert triggered at line: %d\n", __LINE__); abort(); }
 
 
 #include "LibPrimordial\Primitives.h"
@@ -287,9 +287,6 @@ SIG u64 Push_Signature(Globals* globals, Parser* parser, String str, Signature_T
                 nl->counts[t] += 1;
                 nl = nl->prev;
             }
-            
-            Assert(sig->slice.length < 1000);
-            Assert(sig->line < 10000);
         }
     }
 
